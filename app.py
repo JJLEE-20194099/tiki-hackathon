@@ -73,6 +73,9 @@ connect(db='fashion', host="mongodb+srv://ddcmtitiki:187691646@cluster0.zbruhcv.
 # Model variable
 ai_search_model = None
 
+crop_model = None
+
+
 # Done
 @app.route("/signup",methods=["POST"])
 def signup():
@@ -100,6 +103,46 @@ def login():
 @jwt_required()
 def test():
     return "Connect Successfully"
+
+@app.route("/contact-reviewer", methods=["POST"])
+@jwt_required()
+def contactReviwewer():
+    username = get_jwt_identity()
+    user = Users.objects(username=username).first()
+    senderEmail = user.email
+    reviewerEmail = request.json.get("reviewerEmail", None)
+    content = request.json.get("content", None)
+
+    sender_address = 'tikihackathon@gmail.com'
+    sender_pass = 'ahaphjbkojyqurux'
+    receiver_address = reviewerEmail
+
+    message = MIMEMultipart()
+    message['From'] = sender_address
+    message['To'] = receiver_address
+    message['Subject'] = 'Thư mời liên hệ review sản phẩm'
+    mail_content = '''
+    Xin chào {}
+
+    {}
+    Liên hệ với email {} để biết thêm chi tiết. Cảm ơn bạn rất nhiều
+    
+    {}
+    '''.format(receiver_address, content, senderEmail, user.username)
+    message.attach(MIMEText(mail_content, 'plain'))
+    session = smtplib.SMTP('smtp.gmail.com', 587)
+    session.starttls()
+    session.login(sender_address, sender_pass)
+    text = message.as_string()
+    session.sendmail(sender_address, receiver_address, text)
+    session.quit()
+
+    reviewer = Users.objects(email = reviewerEmail).first()
+    numOfConnections = reviewer.numOfConnections + 1
+    reviewer.update(numOfConnections=numOfConnections)
+    return jsonify({"notice":"Bạn liên hệ thành công"})
+
+
 
 
 @app.route("/serve-gift", methods=["POST"])
@@ -146,13 +189,75 @@ def get_outfit_suggestion(predicted, metadata_imgs, threshold):
             res.append(metadata_imgs[i])
     return res
 
+def convert_2_vi_name(name):
+    class_names = ['short_sleeve_top', 'long_sleeve_top', 'short_sleeve_outwear', 'long_sleeve_outwear',
+                  'vest', 'sling', 'shorts', 'trousers', 'skirt', 'short_sleeve_dress',
+                  'long_sleeve_dress', 'vest_dress', 'sling_dress']
 
-def crop_image(image_path):
-  img = cv2.imread(image_path)
-  img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-  img_tensor = Read_Img_2_Tensor(image_path)
-  img_crop = Detect_Clothes_and_Crop(img_tensor, crop_model)
-  return img_crop
+    if name == 'short_sleeve_top':
+        return "Áo phông ngắn tay (short sleeve top)"
+    
+    if name == "long_sleeve_top":
+        return "Áo phông dài tay (long sleeve top)"
+    
+    if name == "short_sleeve_outwear":
+        return "Áo khoác ngắn tay (short sleeve outwear)"
+    
+    if name == "long_sleeve_outwear":
+        return "Áo khoác dài tay (long sleeve outwear)"
+    
+    if name == "vest":
+        return "Aó ba lỗ nam (vest)"
+    if name == "sling":
+        return "Áo yếm (sling)"
+    
+    if name == "shorts":
+        return "Quần đùi (shorts)"
+    
+    if name == "trousers":
+        return "Quần dài (trousers)"
+    
+    if name == "skirt":
+        return "Váy ngắn (skirt)"
+    
+    if name == "short_sleeve_dress":
+        return "Vày dài ngắn tay (short sleeve dress)"
+    
+    if name == "long_sleeve_dress":
+        return "Váy dài dài tay (long sleeve dress)"
+    
+    if name == "vest_dress":
+        return "Váy dài không có ống tay (vest dress)"
+    
+    if name == "sling_dress":
+        return "Váy yếm (sling dress)"
+ 
+
+def crop_image(url):
+    im = PIL.Image.open(requests.get(url, stream=True).raw)
+    img_arr = np.asarray(im)
+    image_path = './temporary_save_img.jpg'
+    cv2.imwrite(image_path, img_arr)
+    img = cv2.imread(image_path)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img_tensor = Read_Img_2_Tensor(image_path)
+    res_list = Detect_Clothes_and_Crop(img_tensor, crop_model)
+
+    image_base_path = './temporary_save'
+    if os.path.exists(image_base_path) == False:
+        os.makedirs(image_base_path)
+    
+    data = dict()
+    image_crop_path_list = []
+    cate_list = []
+    for res in res_list:
+        img_crop = res[0]
+        path = '{}/{}.jpg'.format(image_base_path, res[1])
+        image_crop_path_list.append(path)
+        cate_list.append(res[1])
+        cv2.imwrite(path, img_crop*255)
+    
+    return [image_crop_path_list, cate_list]
 
 def extract_img_features(img_array, model):
     expand_img = np.expand_dims(img_array, axis=0)
@@ -163,10 +268,12 @@ def extract_img_features(img_array, model):
     return result_normlized
 
 def preprocess(image_path, extract_model):
-  im = PIL.Image.open(requests.get(image_path, stream=True).raw).resize((224, 224))
-  img_arr = np.asarray(image)
-  features = extract_img_features(img_arr, extract_model)
-  return features
+    if (image_path is None):
+        return np.zeros((2048, ))
+    im = PIL.Image.open(requests.get(image_path, stream=True).raw).resize((224, 224))
+    img_arr = np.asarray(im)
+    features = extract_img_features(img_arr, extract_model)
+    return features
 
 def process_empty_cloth(cloth_list):
   if len(cloth_list) == 0:
@@ -179,7 +286,6 @@ def concat_vec(outfit):
   return np.array(res)
 
 @app.route("/suggest-outfit", methods=["POST"])
-@jwt_required()
 def suggestOutfit():
     weights_file_path = './weights/tiki_deep_outfit_suggestion_weights.h5'
     json_file = open('./json_model/tiki_deep_outfit_suggestion_model.json', 'r')
@@ -187,25 +293,21 @@ def suggestOutfit():
     json_file.close()
     tiki_fashion_model = model_from_json(loaded_model_json)
     tiki_fashion_model.load_weights(weights_file_path)
-
-    crop_model = Load_DeepFashion2_Yolov3()
-
-    extract_model = ResNet50(weights="imagenet", include_top=False, input_shape=(224, 224, 3))
-    extract_model.trainable = False
-    extract_model = Sequential([extract_model, GlobalMaxPooling2D()])   
-
     
 
-    upload_imgs_arr_list = request.json.get("upload_imgs", {})
+    upload_imgs_arr_list = request.json.get("items", {})
 
     preprocess_outfit = []
-    tops = process_empty_cloth(upload_imgs_arr_list[0])
-    pullovers = process_empty_cloth(upload_imgs_arr_list[1])
-    outerwears = process_empty_cloth(upload_imgs_arr_list[2])
-    bottoms = process_empty_cloth(upload_imgs_arr_list[3])
-    shoes = process_empty_cloth(upload_imgs_arr_list[4])
-    bags = process_empty_cloth(upload_imgs_arr_list[5])
-    dresses = process_empty_cloth(upload_imgs_arr_list[6])
+    tops = process_empty_cloth(upload_imgs_arr_list["top"])
+    pullovers = process_empty_cloth(upload_imgs_arr_list["pullover"])
+    outerwears = process_empty_cloth(upload_imgs_arr_list["outerwear"])
+    bottoms = process_empty_cloth(upload_imgs_arr_list["bottom"])
+    shoes = process_empty_cloth(upload_imgs_arr_list["shoe"])
+    bags = process_empty_cloth(upload_imgs_arr_list["bag"])
+    dresses = process_empty_cloth(upload_imgs_arr_list["dress"])
+
+
+    print(123)
 
     candidates = []
     outfit_paths = []
@@ -216,41 +318,18 @@ def suggestOutfit():
                     for shoe in shoes:
                         for bag in bags:
                             for dress in dresses:
-                                if (top != None and bottom != None and shoes != None and bag != None):
-                                    top_feature = preprocess(top, extract_model)
-                                    pullover_feature = preprocess(pullover, extract_model)
-                                    outerwear_feature = preprocess(outerwear, extract_model)
-                                    bottom_feature = preprocess(bottom, extract_model)
-                                    shoe_feature = preprocess(shoe, extract_model)
-                                    bag_feature = preprocess(bag, extract_model)
-
-                                    if pullover is not None:
-                                        candidates.append([top_feature, pullover_feature, np.zeros((2048, )), bottom_feature, shoe_feature, bag_feature, np.zeros((2048, ))])
-                                        outfit_paths.append([top, pullover, None, bottom, shoe, bag, None])
-                                    
-                                    if pullover is not None and outerwear is not None:
-                                        candidates.append([top_feature, pullover_feature, outerwear_feature, bottom_feature, shoe_feature, bag_feature, np.zeros((2048, ))])
-                                        outfit_paths.append([top, pullover, outerwear, bottom, shoe, bag, None])
-                                    
-                                    if outerwear is not None:
-                                        candidates.append([top_feature, np.zeros((2048, )), outerwear_feature, bottom_feature, shoe_feature, bag_feature, np.zeros((2048, ))])
-                                        outfit_paths.append([top, None, outerwear, bottom, shoe, bag, None])
+                                top_feature = preprocess(top, ai_search_model)
+                                pullover_feature = preprocess(pullover, ai_search_model)
+                                outerwear_feature = preprocess(outerwear, ai_search_model)
+                                bottom_feature = preprocess(bottom, ai_search_model)
+                                shoe_feature = preprocess(shoe, ai_search_model)
+                                bag_feature = preprocess(bag, ai_search_model)
+                                dress_feature = preprocess(dress, ai_search_model)
+                                candidates.append([top_feature, pullover_feature, outerwear_feature, bottom_feature, shoe_feature, bag_feature, dress_feature])
+                                outfit_paths.append([top, pullover, outerwear, bottom, shoe, bag, dress])
 
 
-                                if (dress != None and shoes != None and bag != None):
-                                    shoe_feature = preprocess(shoe, extract_model)
-                                    bag_feature = preprocess(bag, extract_model)
-                                    dress_feature = preprocess(dress, extract_model)
-
-                                    if outerwear is not None:
-                                        outerwear_feature = preprocess(outerwear, extract_model)
-                                        candidates.append([np.zeros((2048, )), np.zeros((2048, )), outerwear_feature, np.zeros((2048, )), shoe_feature, bag_feature, dress_feature])
-                                        outfit_paths.append([None, None, outerwear, None, shoe, bag, dress]) 
-                                    
-                                    else :
-                                        candidates.append([np.zeros((2048, )), np.zeros((2048, )), np.zeros((2048, )), np.zeros((2048, )), shoe_feature, bag_feature, dress_feature])
-                                        outfit_paths.append([None, None, None, None, shoe, bag, dress])
-
+    
 
                                     
     candidates = np.array(candidates)
@@ -291,6 +370,8 @@ def createOutfit():
 
     Outfits(userId=userId, items=items, desc=desc, ).save()
     return jsonify({"notice":"Bạn đã tạo outfit thành công"})
+
+
 
 #Done
 @app.route("/generate-user", methods=["POST"])
@@ -464,6 +545,16 @@ def extract_img_features(img_path,model):
 
   return result_normlized
 
+def extract_crop_img_features(img_path, model):
+    img = image.load_img(img_path,target_size=(224,224))
+    img_arr = image.img_to_array(img)
+    expand_img = np.expand_dims(img_arr,axis=0)
+    preprocessed_img = preprocess_input(expand_img)
+    result_to_resnet = model.predict(preprocessed_img)
+    flatten_result = result_to_resnet.flatten()
+    result_normlized = flatten_result / norm(flatten_result)
+    return result_normlized
+
 def recommend(features, features_list):
     neighbors = NearestNeighbors(n_neighbors=6, algorithm='brute', metric='euclidean')
     neighbors.fit(features_list)
@@ -474,33 +565,48 @@ def recommend(features, features_list):
 
 
 @app.route("/ai-search", methods=["POST"])
-@jwt_required()
 def searchByAI():
-    username = get_jwt_identity()
 
     uploaded_file = request.json.get('uploaded_file', None)
-    print(requests.get(uploaded_file, stream=True).raw)
     im = PIL.Image.open(requests.get(uploaded_file, stream=True).raw).resize((224, 224))
     size = (400, 400)
     resized_im = im.resize(size)
     # extract features of uploaded image
     features_list = pickle.load(open("./image_features_embedding.pkl", "rb"))
     img_files_list = pickle.load(open("./img_files.pkl", "rb"))
+
+    global crop_model
+    if crop_model is None:
+        crop_model = Load_DeepFashion2_Yolov3()
+
+    
+    
+    detect_cloth_list = crop_image(uploaded_file)
+
+    crop_image_path_list = detect_cloth_list[0]
+    cate_list = detect_cloth_list[1]
+    
+
     global ai_search_model
     if ai_search_model is None:
         ai_search_model = ResNet50(weights="imagenet", include_top=False, input_shape=(224, 224, 3))
         ai_search_model.trainable = False
         ai_search_model = Sequential([ai_search_model, GlobalMaxPooling2D()])
+    
+    
+    data = dict()
+    for _ in range(len(crop_image_path_list)):
+        crop_image_path = crop_image_path_list[_]
+        cate = cate_list[_]
+        features = extract_crop_img_features(crop_image_path, ai_search_model)
+        img_indicess = recommend(features, features_list)
+        paths = []
+        for i in range(len(img_indicess[0])):
+            path = img_files_list[img_indicess[0][i]]
+            paths.append(path)
+        data.update({convert_2_vi_name(cate): paths})
 
-    features = extract_img_features(uploaded_file, ai_search_model)
-    img_indicess = recommend(features, features_list)
+    return jsonify({"notice":"Bạn đã tìm kiếm bằng AI thành công", "data": data})
 
-    paths = []
-    for i in range(len(img_indicess[0])):
-        path = img_files_list[img_indicess[0][i]]
-        paths.append(path)
-
-    return jsonify({"notice":"Bạn đã tìm kiếm bằng AI thành công", "paths": paths})
-
-if __name__ == "__main__":
-   app.run()
+if __name__ == "__main__":    
+    app.run()

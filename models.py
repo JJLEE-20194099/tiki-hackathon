@@ -1,5 +1,7 @@
 from mongoengine import *
 import datetime
+
+from traitlets import default
 class Gifts(Document):
     username = StringField(required=True)
     email = EmailField(required=True)
@@ -48,6 +50,8 @@ class Users(Document):
     username = StringField(required=True)
     password = StringField(required=True)
     email = EmailField(required=True)
+
+    numOfConnections = IntField(default=0)
 
     def to_document(self):
         return self.__dict__
