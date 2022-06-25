@@ -14,3 +14,4 @@ sklearn~=0.0
 scikit-learn~=1.0.1
 opencv-python~=4.5.4.60
 dnspython~=2.2.1
+cloudinary

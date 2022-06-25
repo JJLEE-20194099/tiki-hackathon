@@ -147,137 +147,137 @@ def get_outfit_suggestion(predicted, metadata_imgs, threshold):
     return res
 
 
-# def extract_features(img_path,model):
-#   img = image.load_img(img_path,target_size=(224,224))
-#   img_array = image.img_to_array(img)
-#   expand_img = np.expand_dims(img_array,axis=0)
-#   preprocessed_img = preprocess_input(expand_img)
-#   result_to_resnet = model.predict(preprocessed_img)
-#   flatten_result = result_to_resnet.flatten()
-#   # normalizing
-#   result_normlized = flatten_result / norm(flatten_result)
+def crop_image(image_path):
+  img = cv2.imread(image_path)
+  img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+  img_tensor = Read_Img_2_Tensor(image_path)
+  img_crop = Detect_Clothes_and_Crop(img_tensor, crop_model)
+  return img_crop
 
-#   return result_normlized
+def extract_img_features(img_array, model):
+    expand_img = np.expand_dims(img_array, axis=0)
+    preprocessed_img = preprocess_input(expand_img)
+    result_to_resnet = model.predict(preprocessed_img)
+    flatten_result = result_to_resnet.flatten()
+    result_normlized = flatten_result / norm(flatten_result)
+    return result_normlized
 
-# def crop_image(image_path):
-#   img = cv2.imread(image_path)
-#   img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-#   img_tensor = Read_Img_2_Tensor(image_path)
-#   img_crop = Detect_Clothes_and_Crop(img_tensor, crop_model)
-#   return img_crop
+def preprocess(image_path, extract_model):
+  im = PIL.Image.open(requests.get(image_path, stream=True).raw).resize((224, 224))
+  img_arr = np.asarray(image)
+  features = extract_img_features(img_arr, extract_model)
+  return features
 
-# def extract_img_features(img_array, model):
-#     img_path = './uploads/camera.jpg';
-#     cv2.imwrite(img_path, img_array*255)
-#     img = image.load_img(img_path, target_size=(224, 224))
-#     img_array = image.img_to_array(img)
-#     expand_img = np.expand_dims(img_array, axis=0)
-#     preprocessed_img = preprocess_input(expand_img)
-#     result_to_resnet = model.predict(preprocessed_img)
-#     flatten_result = result_to_resnet.flatten()
-#     # normalizing
-#     result_normlized = flatten_result / norm(flatten_result)
-#     return result_normlized
+def process_empty_cloth(cloth_list):
+  if len(cloth_list) == 0:
+    return [None]
+  return cloth_list
+def concat_vec(outfit):
+  res = []
+  for cloth in outfit:
+    res = res + list(cloth)
+  return np.array(res)
 
-# def preprocess(cate, image_path, extract_model):
-#   full_path = './demo_outfit_recommendation/{}/{}'.format(cate, image_path)
-#   img_arr = cv2.imread(full_path)
-#   features = extract_img_features(img_arr, extract_model)
-#   return features
+@app.route("/suggest-outfit", methods=["POST"])
+@jwt_required()
+def suggestOutfit():
+    weights_file_path = './weights/tiki_deep_outfit_suggestion_weights.h5'
+    json_file = open('./json_model/tiki_deep_outfit_suggestion_model.json', 'r')
+    loaded_model_json = json_file.read()
+    json_file.close()
+    tiki_fashion_model = model_from_json(loaded_model_json)
+    tiki_fashion_model.load_weights(weights_file_path)
 
-# def process_empty_cloth(cloth_list):
-#   if len(cloth_list) == 0:
-#     return ['./default_image.png']
-#   return cloth_list
-# def concat_vec(outfit):
-#   res = []
-#   for cloth in outfit:
-#     res = res + list(cloth)
-#   return np.array(res)
+    crop_model = Load_DeepFashion2_Yolov3()
 
-# @app.route("/suggest-outfit", methods=["POST"])
-# @jwt_required()
-# def suggestOutfit():
-#     weights_file_path = './weights/tiki_deep_outfit_suggestion_weights.h5'
-#     json_file = open('./json_model/tiki_deep_outfit_suggestion_model.json', 'r')
-#     loaded_model_json = json_file.read()
-#     json_file.close()
-#     tiki_fashion_model = model_from_json(loaded_model_json)
-#     tiki_fashion_model.load_weights(weights_file_path)
-
-#     crop_model = Load_DeepFashion2_Yolov3()
-
-#     extract_model = ResNet50(weights="imagenet", include_top=False, input_shape=(224, 224, 3))
-#     extract_model.trainable = False
-#     extract_model = Sequential([extract_model, GlobalMaxPooling2D()])   
+    extract_model = ResNet50(weights="imagenet", include_top=False, input_shape=(224, 224, 3))
+    extract_model.trainable = False
+    extract_model = Sequential([extract_model, GlobalMaxPooling2D()])   
 
     
 
-#     upload_imgs_arr_list = request.json.get("upload_imgs", {})
+    upload_imgs_arr_list = request.json.get("upload_imgs", {})
 
-#     preprocess_outfit = []
-#     tops = process_empty_cloth(upload_imgs_arr_list[0])
-#     pullovers = process_empty_cloth(upload_imgs_arr_list[1])
-#     outerwears = process_empty_cloth(upload_imgs_arr_list[2])
-#     bottoms = process_empty_cloth(upload_imgs_arr_list[3])
-#     shoes = process_empty_cloth(upload_imgs_arr_list[4])
-#     bags = process_empty_cloth(upload_imgs_arr_list[5])
-#     dresses = process_empty_cloth(upload_imgs_arr_list[6])
+    preprocess_outfit = []
+    tops = process_empty_cloth(upload_imgs_arr_list[0])
+    pullovers = process_empty_cloth(upload_imgs_arr_list[1])
+    outerwears = process_empty_cloth(upload_imgs_arr_list[2])
+    bottoms = process_empty_cloth(upload_imgs_arr_list[3])
+    shoes = process_empty_cloth(upload_imgs_arr_list[4])
+    bags = process_empty_cloth(upload_imgs_arr_list[5])
+    dresses = process_empty_cloth(upload_imgs_arr_list[6])
 
-#     candidates = []
-#     outfit_paths = []
-#     for top in tqdm(tops):
-#         for pullover in pullovers:
-#             for outerwear in outerwears:
-#                 for bottom in bottoms:
-#                     for shoe in shoes:
-#                         for bag in bags:
-#                             for dress in dresses:
-#                                 if (top != './default_image.png' and bottom != './default_image.png' and shoes != './default_image.png' and bag != './default_image.png'):
-#                                     top_feature = preprocess('top', top, extract_model)
-#                                     pullover_feature = preprocess('pullover', pullover, extract_model)
-#                                     outerwear_feature = preprocess('outerwear', outerwear, extract_model)
-#                                     bottom_feature = preprocess('bottom', bottom, extract_model)
-#                                     shoe_feature = preprocess('shoe', shoe, extract_model)
-#                                     bag_feature = preprocess('bag', bag, extract_model)
-#                                     dress_feature = preprocess('dress', dress, extract_model)
-#                                     candidates.append([top_feature, pullover_feature, outerwear_feature, bottom_feature, shoe_feature, bag_feature, np.zeros((2048, ))])
-#                                     outfit_paths.append([top, pullover, outerwear, bottom, shoe, bag, './default_image.png'])
-#                                 if (dress != './default_image.png' and shoes != './default_image.png' and bag != './default_image.png'):
-#                                     top_feature = preprocess('top', top, extract_model)
-#                                     pullover_feature = preprocess('pullover', pullover, extract_model)
-#                                     outerwear_feature = preprocess('outerwear', outerwear, extract_model)
-#                                     bottom_feature = preprocess('bottom', bottom, extract_model)
-#                                     shoe_feature = preprocess('shoe', shoe, extract_model)
-#                                     bag_feature = preprocess('bag', bag, extract_model)
-#                                     dress_feature = preprocess('dress', dress, extract_model)
-#                                     candidates.append([np.zeros((2048, )), np.zeros((2048, )), outerwear_feature, np.zeros((2048, )), shoe_feature, bag_feature, dress_feature])
-#                                     outfit_paths.append(['./default_image.png', './default_image.png', outerwear, './default_image.png', shoe, bag, dress])        
-#     candidates = np.array(candidates)
-#     kmeans = KMeans(n_clusters=7, init='k-means++', max_iter=300, n_init=10, random_state=0)
-#     X = [concat_vec(candidate) for candidate  in candidates]
-#     kmeans.fit(np.array(X))
-#     labels = kmeans.labels_
-#     suggest_dict = dict()
+    candidates = []
+    outfit_paths = []
+    for top in tqdm(tops):
+        for pullover in pullovers:
+            for outerwear in outerwears:
+                for bottom in bottoms:
+                    for shoe in shoes:
+                        for bag in bags:
+                            for dress in dresses:
+                                if (top != None and bottom != None and shoes != None and bag != None):
+                                    top_feature = preprocess(top, extract_model)
+                                    pullover_feature = preprocess(pullover, extract_model)
+                                    outerwear_feature = preprocess(outerwear, extract_model)
+                                    bottom_feature = preprocess(bottom, extract_model)
+                                    shoe_feature = preprocess(shoe, extract_model)
+                                    bag_feature = preprocess(bag, extract_model)
 
-#     for i, label in enumerate(labels):
-#         if str(label) not in suggest_dict.keys():
-#             suggest_dict.update({str(label): {
-#                 "cans": [candidates[i]],
-#                 "paths": [outfit_paths[i]]
-#             }})
-#         else:
-#             suggest_dict[str(label)]["cans"].append(candidates[i])
-#             suggest_dict[str(label)]["paths"].append(outfit_paths[i])
+                                    if pullover is not None:
+                                        candidates.append([top_feature, pullover_feature, np.zeros((2048, )), bottom_feature, shoe_feature, bag_feature, np.zeros((2048, ))])
+                                        outfit_paths.append([top, pullover, None, bottom, shoe, bag, None])
+                                    
+                                    if pullover is not None and outerwear is not None:
+                                        candidates.append([top_feature, pullover_feature, outerwear_feature, bottom_feature, shoe_feature, bag_feature, np.zeros((2048, ))])
+                                        outfit_paths.append([top, pullover, outerwear, bottom, shoe, bag, None])
+                                    
+                                    if outerwear is not None:
+                                        candidates.append([top_feature, np.zeros((2048, )), outerwear_feature, bottom_feature, shoe_feature, bag_feature, np.zeros((2048, ))])
+                                        outfit_paths.append([top, None, outerwear, bottom, shoe, bag, None])
+
+
+                                if (dress != None and shoes != None and bag != None):
+                                    shoe_feature = preprocess(shoe, extract_model)
+                                    bag_feature = preprocess(bag, extract_model)
+                                    dress_feature = preprocess(dress, extract_model)
+
+                                    if outerwear is not None:
+                                        outerwear_feature = preprocess(outerwear, extract_model)
+                                        candidates.append([np.zeros((2048, )), np.zeros((2048, )), outerwear_feature, np.zeros((2048, )), shoe_feature, bag_feature, dress_feature])
+                                        outfit_paths.append([None, None, outerwear, None, shoe, bag, dress]) 
+                                    
+                                    else :
+                                        candidates.append([np.zeros((2048, )), np.zeros((2048, )), np.zeros((2048, )), np.zeros((2048, )), shoe_feature, bag_feature, dress_feature])
+                                        outfit_paths.append([None, None, None, None, shoe, bag, dress])
+
+
+                                    
+    candidates = np.array(candidates)
+    kmeans = KMeans(n_clusters=7, init='k-means++', max_iter=300, n_init=10, random_state=0)
+    X = [concat_vec(candidate) for candidate  in candidates]
+    kmeans.fit(np.array(X))
+    labels = kmeans.labels_
+    suggest_dict = dict()
+
+    for i, label in enumerate(labels):
+        if str(label) not in suggest_dict.keys():
+            suggest_dict.update({str(label): {
+                "cans": [candidates[i]],
+                "paths": [outfit_paths[i]]
+            }})
+        else:
+            suggest_dict[str(label)]["cans"].append(candidates[i])
+            suggest_dict[str(label)]["paths"].append(outfit_paths[i])
     
-#     suggest_res = []
-#     for key in suggest_dict.keys():
-#         cans = np.array(suggest_dict[key]["cans"])
-#         predict_values = np.array(tiki_fashion_model.predict([cans[:, 0], cans[:, 1], cans[:, 2], cans[:, 3], cans[:, 4], cans[:, 5], cans[:, 6]]))
-#         paths = suggest_dict[key]["paths"]
-#         suggest_res.append(paths[np.argmax(predict_values)])
+    suggest_res = []
+    for key in suggest_dict.keys():
+        cans = np.array(suggest_dict[key]["cans"])
+        predict_values = np.array(tiki_fashion_model.predict([cans[:, 0], cans[:, 1], cans[:, 2], cans[:, 3], cans[:, 4], cans[:, 5], cans[:, 6]]))
+        paths = suggest_dict[key]["paths"]
+        suggest_res.append(paths[np.argmax(predict_values)])
 
-#     return jsonify({"outfit_suggestion_list": suggest_res})
+    return jsonify({"outfit_suggestion_list": suggest_res})
 
 # Done
 @app.route("/create-outfit", methods=["POST"])
