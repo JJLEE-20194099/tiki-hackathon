@@ -79,11 +79,11 @@ crop_model = None
 # Done
 @app.route("/signup",methods=["POST"])
 def signup():
-    
-    username = request.json.get("username", None)
-    email = request.json.get("email", None)
-    password = request.json.get("password", None)
-    re_password = request.json.get("re_password", None)
+    req = eval(list(request.form.to_dict().keys())[0])
+    username = req['username']
+    email = req['email']
+    password = req['password']
+    re_password = req['re_password']
     if (password != re_password):
         return jsonify({"error": "Nhập lại mật khẩu không đúng"})
     
@@ -92,10 +92,10 @@ def signup():
 
 @app.route("/login", methods=["POST"])
 def login():
-    username = request.json.get("username", None)
-    password = request.json.get("password", None)
+    req = eval(list(request.form.to_dict().keys())[0])
+    username = req['username']
+    password = req['password']
     user = Users.objects(username=username,password=password).first()
-    print(user.username)
     access_token = create_access_token(identity=user.username)
     return jsonify({"access_token":access_token})
 
@@ -110,8 +110,9 @@ def contactReviwewer():
     username = get_jwt_identity()
     user = Users.objects(username=username).first()
     senderEmail = user.email
-    reviewerEmail = request.json.get("reviewerEmail", None)
-    content = request.json.get("content", None)
+    req = eval(list(request.form.to_dict().keys())[0])
+    reviewerEmail = req['reviewerEmail']
+    content = req['content']
 
     sender_address = 'tikihackathon@gmail.com'
     sender_pass = 'ahaphjbkojyqurux'
@@ -148,16 +149,17 @@ def contactReviwewer():
 @app.route("/serve-gift", methods=["POST"])
 @jwt_required()
 def doGiftService():
-    username = get_jwt_identity()
-    email = request.json.get("email", None)
-    nameSender = request.json.get("nameSender", None)
-    phoneSender = request.json.get("phoneSender", None)
-    content = request.json.get("content", None)
-    nameReceiver = request.json.get("nameReceiver", None)
-    phoneReceiver = request.json.get("phoneReceiver", None)
-    items = request.json.get("items", None)
-    total = request.json.get("total", None)
-    address = request.json.get("address", None)
+    req = eval(list(request.form.to_dict().keys())[0])
+    username = req['username']
+    email = req['email']
+    nameSender = req['nameSender']
+    phoneSender = req['phoneSender']
+    content = req['content']
+    nameReceiver = req['nameReceiver']
+    phoneReceiver = req['phoneReceiver']
+    total = req['total']
+    address = req['address']
+    items = req['items']
     
     Gifts(username=username, email=email, nameSender=nameSender, phoneSender=phoneSender, content=content, nameReceiver=nameReceiver, phoneReceiver=phoneReceiver, total=total, address=address, items=items).save()
 
@@ -259,20 +261,10 @@ def crop_image(url):
     
     return [image_crop_path_list, cate_list]
 
-def extract_img_features(img_array, model):
-    expand_img = np.expand_dims(img_array, axis=0)
-    preprocessed_img = preprocess_input(expand_img)
-    result_to_resnet = model.predict(preprocessed_img)
-    flatten_result = result_to_resnet.flatten()
-    result_normlized = flatten_result / norm(flatten_result)
-    return result_normlized
-
 def preprocess(image_path, extract_model):
     if (image_path is None):
         return np.zeros((2048, ))
-    im = PIL.Image.open(requests.get(image_path, stream=True).raw).resize((224, 224))
-    img_arr = np.asarray(im)
-    features = extract_img_features(img_arr, extract_model)
+    features = extract_img_features(image_path, extract_model)
     return features
 
 def process_empty_cloth(cloth_list):
@@ -294,8 +286,8 @@ def suggestOutfit():
     tiki_fashion_model = model_from_json(loaded_model_json)
     tiki_fashion_model.load_weights(weights_file_path)
     
-
-    upload_imgs_arr_list = request.json.get("items", {})
+    req = eval(list(request.form.to_dict().keys())[0])
+    upload_imgs_arr_list = req['items']
 
     preprocess_outfit = []
     tops = process_empty_cloth(upload_imgs_arr_list["top"])
@@ -307,10 +299,16 @@ def suggestOutfit():
     dresses = process_empty_cloth(upload_imgs_arr_list["dress"])
 
 
-    print(123)
 
     candidates = []
     outfit_paths = []
+
+    global ai_search_model
+    if ai_search_model is None:
+        ai_search_model = ResNet50(weights="imagenet", include_top=False, input_shape=(224, 224, 3))
+        ai_search_model.trainable = False
+        ai_search_model = Sequential([ai_search_model, GlobalMaxPooling2D()])
+
     for top in tqdm(tops):
         for pullover in pullovers:
             for outerwear in outerwears:
@@ -333,7 +331,7 @@ def suggestOutfit():
 
                                     
     candidates = np.array(candidates)
-    kmeans = KMeans(n_clusters=7, init='k-means++', max_iter=300, n_init=10, random_state=0)
+    kmeans = KMeans(n_clusters=3, init='k-means++', max_iter=300, n_init=10, random_state=0)
     X = [concat_vec(candidate) for candidate  in candidates]
     kmeans.fit(np.array(X))
     labels = kmeans.labels_
@@ -364,11 +362,20 @@ def suggestOutfit():
 def createOutfit():
     username = get_jwt_identity()
     userId = ObjectId(Users.objects(username=username).first().pk)
-    outfit = request.json.get("outfit", None)
-    items = outfit["items"]
-    desc = outfit["desc"]
-
-    Outfits(userId=userId, items=items, desc=desc, ).save()
+    req = eval(list(request.form.to_dict().keys())[0])
+    # outfit = request.json.get("outfit", None)
+    items = []
+    for i in req['items'].keys():
+        if len(req['items'][i]) > 0:
+            items.append({
+                'name': i,
+                'image': req['items'][i][0],
+                'likes': 0,
+                'price': random.randint(1, 100)
+            })
+    # items = req['items']
+    desc = req["desc"]
+    Outfits(userId=userId, items=items, desc=desc).save()
     return jsonify({"notice":"Bạn đã tạo outfit thành công"})
 
 
@@ -382,7 +389,6 @@ def generateUser():
         email = fake.pystr(min_chars=None, max_chars=20) + "@gmail.com"
         password = "123"
         Users(username=username,password=password,email=email).save()
-        print(1)
     
     return jsonify({"notice":"Fake users thành công"})
 
@@ -436,7 +442,6 @@ def getMyOutfit():
     username = get_jwt_identity()
     userId = ObjectId(Users.objects(username=username).first().pk)
     outfits = Outfits.objects(userId=ObjectId(userId))
-    print(len(outfits))
     return jsonify({"notice":"Lấy ra outfit thành công", "data": json.loads(outfits.to_json())})
 
 @app.route("/get-outfit-by-id", methods=['GET'])
@@ -444,7 +449,6 @@ def getMyOutfit():
 def getOutfitByUserId():
     userId = ObjectId(request.args.get("userId"))
     outfits = Outfits.objects(userId=ObjectId(userId))
-    print(len(outfits))
     return jsonify({"notice":"Lấy ra outfit thành công", "data": json.loads(outfits.to_json())})
 
 # Done
@@ -487,7 +491,6 @@ def getUserById():
 @jwt_required()
 def getAllReviewOutfit():
     reviewOutfits = OutfitReviews.objects().all()
-    print(len(reviewOutfits))
     return jsonify({"notice":"Lấy ra review outfit thành công", "data": json.loads(reviewOutfits.to_json())})
 
 # Done
@@ -495,11 +498,10 @@ def getAllReviewOutfit():
 @jwt_required()
 def reviewOutfit():
     username = get_jwt_identity()
-    print(username)
-
+    req = eval(list(request.form.to_dict().keys())[0])
     userId = ObjectId(Users.objects(username=username).first().pk)
-    outfitId = ObjectId(request.json.get("outfitId", None))
-    review = request.json.get("review", None)
+    outfitId = ObjectId(req['outfitId'])
+    review = req['review']
 
     OutfitReviews(userId=userId, outfitId=outfitId, review=review).save()
     outfit = Outfits.objects.get(pk=outfitId)
@@ -531,10 +533,9 @@ def likeReviewOutfit():
 
     return jsonify({"notice":"Bạn like bài viết thành công"})
 def convert_image_url_to_array(url):
-  im = PIL.Image.open(requests.get(url, stream=True).raw).resize((224, 224))
-  return np.array(im)
+  return np.array(PIL.Image.open(requests.get(url, stream=True).raw).resize((224, 224)))
 
-def extract_img_features(img_path,model):
+def extract_img_features(img_path, model):
   img_array = convert_image_url_to_array(img_path)
   expand_img = np.expand_dims(img_array,axis=0)
   preprocessed_img = preprocess_input(expand_img)
@@ -542,7 +543,6 @@ def extract_img_features(img_path,model):
   flatten_result = result_to_resnet.flatten()
   # normalizing
   result_normlized = flatten_result / norm(flatten_result)
-
   return result_normlized
 
 def extract_crop_img_features(img_path, model):
@@ -566,8 +566,8 @@ def recommend(features, features_list):
 
 @app.route("/ai-search", methods=["POST"])
 def searchByAI():
-
-    uploaded_file = request.json.get('uploaded_file', None)
+    req = eval(list(request.form.to_dict().keys())[0])
+    uploaded_file = req['uploaded_file']
     im = PIL.Image.open(requests.get(uploaded_file, stream=True).raw).resize((224, 224))
     size = (400, 400)
     resized_im = im.resize(size)
